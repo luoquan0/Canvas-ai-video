@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Canvas · RunningHub 工作流操作台</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Microsoft Yahei",sans-serif;color-scheme:dark;color:#e6eaf5;background:#0f1421}
+*{box-sizing:border-box}body{max-width:1060px;margin:0 auto;padding:28px 18px 60px}
+h1{font-size:25px;margin:4px 0 7px}h2{font-size:17px;margin:0 0 18px}
+small,p{color:#abb6c9;line-height:1.6}.sub{margin:0 0 27px}
+main{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+section{background:#1b2231;border:1px solid #334057;border-radius:15px;padding:22px;min-width:0}
+.wide{grid-column:1/-1}label{display:block;color:#d3dbe8;margin:12px 0 6px;font-size:14px}
+input,select,textarea,button{font:inherit}input,select,textarea{background:#0f1625;color:#eef1f8;border:1px solid #3b4b64;border-radius:9px;padding:11px;width:100%}
+textarea{min-height:176px;resize:vertical;font:13px/1.5 ui-monospace,Consolas,monospace}
+button{background:#517de7;color:white;border:0;border-radius:9px;padding:10px 15px;cursor:pointer;margin:12px 8px 4px 0}
+button.secondary{background:#35445e}button:disabled{opacity:.55;cursor:wait}
+.status{padding:14px;background:#101725;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 ui-monospace,Consolas,monospace;max-height:360px;overflow:auto}
+kbd{background:#34435f;border-radius:4px;padding:2px 5px}
+.check{display:flex;gap:10px;align-items:flex-start}.check input{width:18px;flex:none;margin-top:3px}
+.warning{color:#fbcf87}.success{color:#96d9b0}.results a{color:#98bafb;overflow-wrap:anywhere}
+@media(max-width:750px){main{display:block}section{margin-bottom:18px}body{padding:20px 14px}}
+</style>
+</head>
+<body>
+<h1>Canvas · RunningHub 工作流操作台</h1>
+<p class="sub">独立扩展，不修改原版 ComfyUI。API Key 只保留在当前页面内存，不写入浏览器存储或 GitHub。使用时请在受信任的本机环境打开。</p>
+<main>
+<section>
+<h2>1. 连接与工作流</h2>
+<label for="region">运行区域</label>
+<select id="region"><option value="cn">中国站 · runninghub.cn</option><option value="global">国际站 · runninghub.ai</option></select>
+<label for="apiKey">RunningHub API Key</label>
+<input id="apiKey" type="password" autocomplete="off" placeholder="仅用于当前页面请求">
+<label for="workflowId">工作流 ID（数字）</label>
+<input id="workflowId" inputmode="numeric" pattern="[0-9]+" placeholder="例如：1904136902449209346">
+<button id="loadWorkflow" class="secondary">读取工作流结构</button>
+<p>读取后，可以从返回的 JSON 中查看节点 ID，并在右侧编辑参数。</p>
+</section>
+<section>
+<h2>2. 上传素材</h2>
+<label for="media">选择图片、视频或音频</label>
+<input id="media" type="file" accept=".png,.jpg,.jpeg,.webp,.mp4,.mov,.wav,.mp3,.flac,.avi,.mkv,.zip">
+<button id="upload" class="secondary">上传到 RunningHub</button>
+<p>成功上传后，请将返回结果中的 <kbd>fileName</kbd>（国际站可能是 <kbd>filename</kbd>）填入节点参数。</p>
+<div id="uploadOutput" class="status">暂无上传结果</div>
+</section>
+<section class="wide">
+<h2>3. 配置节点参数并提交任务</h2>
+<p>每个节点使用 <kbd>nodeId</kbd>、<kbd>fieldName</kbd>、<kbd>fieldValue</kbd>。若不需要覆盖工作流默认参数，填入 <kbd>[]</kbd> 即可。</p>
+<label for="nodes">nodeInfoList (JSON 数组)</label>
+<textarea id="nodes" spellcheck="false">[]</textarea>
+<label class="check"><input id="allowPaid" type="checkbox"><span class="warning">我了解：提交工作流可能消耗 RunningHub 额度；只有勾选后才允许提交。</span></label>
+<button id="submit">提交生成任务</button>
+</section>
+<section>
+<h2>4. 任务查询</h2>
+<label for="taskId">任务 ID（提交后会自动填入）</label>
+<input id="taskId" inputmode="numeric" placeholder="任务 ID">
+<button id="query" class="secondary">查询状态</button>
+<button id="cancel" class="secondary">取消任务</button>
+<button id="archive" class="secondary">保存成功结果到服务器</button>
+<p>云端文件链接可能过期。成功后建议及时保存；保存路径由运行扩展的服务器配置决定。</p>
+<div class="results" id="resultLinks"></div>
+</section>
+<section>
+<h2>5. 状态与结果</h2>
+<div id="output" class="status" role="status" aria-live="polite">尚未发起操作</div>
+</section>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const getValue = id => $(id).value.trim();
+function show(value) {
+  $('output').textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+function authHeaders() {
+  const key = getValue('apiKey');
+  if (!key) throw new Error('请填写 API Key');
+  return {'X-RunningHub-Key':key,'X-RunningHub-Region':getValue('region')};
+}
+async function call(path, data, isUpload=false) {
+  const headers = authHeaders();
+  if (!isUpload) headers['Content-Type']='application/json';
+  const response = await fetch('api/'+path, {
+    method:'POST',headers,cache:'no-store',
+    body:isUpload?data:JSON.stringify(data)
+  });
+  const result=await response.json().catch(()=>({error:'服务端返回了非 JSON 内容'}));
+  if (!response.ok) throw new Error(result.error||'HTTP '+response.status);
+  return result;
+}
+async function run(button, action) {
+  button.disabled=true;
+  try {const data=await action();show(data);return data;}
+  catch(error){show('操作失败：'+error.message);return null;}
+  finally{button.disabled=false;}
+}
+function idRequest(field) {
+  const id=getValue(field);
+  if (!/^\d{1,32}$/.test(id)) throw new Error('请填写正确的数字 ID');
+  return id;
+}
+$('loadWorkflow').onclick=()=>run($('loadWorkflow'),async()=>{
+  const data=await call('workflow',{workflowId:idRequest('workflowId')});
+  const prompt=data?.data?.prompt;
+  if (typeof prompt==='string') {
+    try {
+      const obj=JSON.parse(prompt);
+      const editable=[];
+      for(const [nodeId,node] of Object.entries(obj)) {
+        for(const [fieldName,v] of Object.entries(node.inputs||{})) {
+          if(typeof v==='string'||typeof v==='number'||typeof v==='boolean'){
+            editable.push({nodeId,fieldName,fieldValue:String(v)});
+          }
+        }
+      }
+      $('nodes').value=JSON.stringify(editable,null,2);
+    }catch(e){ /* Keep original result visible to inspect JSON manually. */ }
+  }
+  return data;
+});
+$('upload').onclick=()=>run($('upload'),async()=>{
+  const file=$('media').files[0];
+  if(!file) throw new Error('请选择文件');
+  if(file.size>32*1024*1024) throw new Error('文件大小不能超过 32 MB');
+  const body=new FormData();body.append('file',file,file.name);
+  const data=await call('upload',body,true);
+  $('uploadOutput').textContent=JSON.stringify(data,null,2);
+  return data;
+});
+$('submit').onclick=()=>run($('submit'),async()=>{
+  if(!$('allowPaid').checked) throw new Error('请先勾选 RunningHub 额度消耗确认');
+  const nodes=JSON.parse(getValue('nodes'));
+  if(!Array.isArray(nodes))throw new Error('nodeInfoList 必须是 JSON 数组');
+  const data=await call('submit',{workflowId:idRequest('workflowId'),nodeInfoList:nodes});
+  const taskId=data?.data?.taskId||data?.taskId;
+  if(taskId) $('taskId').value=String(taskId);
+  return data;
+});
+$('query').onclick=()=>run($('query'),async()=>{
+  const data=await call('query',{taskId:idRequest('taskId')});
+  $('resultLinks').replaceChildren();
+  if (data.status==='SUCCESS'&&Array.isArray(data.results)) {
+    for(const item of data.results) {
+      try {
+        const url=new URL(item.url);
+        if(url.protocol!=='https:')continue;
+        const p=document.createElement('p'); const a=document.createElement('a');
+        a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开生成结果：'+(item.outputType||'文件');
+        p.appendChild(a);$('resultLinks').appendChild(p);
+      }catch(e){}
+    }
+  }
+  return data;
+});
+$('cancel').onclick=()=>run($('cancel'),async()=>{
+  if(!confirm('确定要取消当前任务吗？'))return '已取消操作';
+  return call('cancel',{taskId:idRequest('taskId')});
+});
+$('archive').onclick=()=>run($('archive'),async()=>{
+  if(!confirm('将已经生成的文件下载到扩展所在服务器？'))return '已取消操作';
+  return call('archive',{taskId:idRequest('taskId')});
+});
+</script>
+</body>
+</html>

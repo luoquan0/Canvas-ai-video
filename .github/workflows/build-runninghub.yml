@@ -1,0 +1,39 @@
+name: Build RunningHub Extension WAR
+on:
+  push:
+    branches: [main, feature/runninghub-integration]
+    paths:
+      - "extension/**"
+      - ".github/workflows/build-runninghub.yml"
+  pull_request:
+    paths:
+      - "extension/**"
+      - ".github/workflows/build-runninghub.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    name: Java 17 Maven test and WAR package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: extension/pom.xml
+      - name: Compile, test and package
+        run: mvn -B -ntp -f extension/pom.xml clean verify
+      - name: Upload Tomcat 10.1 WAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: runninghub-war
+          path: extension/target/runninghub.war
+          if-no-files-found: error
+          retention-days: 30

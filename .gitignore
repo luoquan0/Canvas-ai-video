@@ -1,0 +1,9 @@
+extension/target/
+*.class
+*.war
+*.zip
+.idea/
+.vscode/
+.DS_Store
+.env
+**/secrets.*
