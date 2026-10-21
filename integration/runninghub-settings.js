@@ -14,12 +14,41 @@
     var button=document.createElement('button');button.type='button';button.textContent='展开配置';button.style.cssText='background:#377de7;color:white;border:0;border-radius:7px;padding:10px 15px;cursor:pointer';
     var content=document.createElement('div');content.hidden=true;content.style.cssText='border-top:1px solid #394352;padding:0';
     var note=document.createElement('p');note.style.cssText='padding:12px 18px 0;margin:0;font-size:12px;line-height:1.6;color:var(--text-secondary,#abb3be)';
-    note.textContent='这是嵌入原网页的 RunningHub 独立生成操作台。暂未接管原系统的「生成视频」按钮，生成结果不会自动写入原素材库。';
+    note.textContent='这里包含 RunningHub 云端工作流操作台与原系统视频生成兼容代理。先配置节点映射，再将原版视频 ComfyUI 地址切换到云端代理；原版 WAR 不会被替换。';
     var frame=document.createElement('iframe');frame.title='RunningHub 云端工作流配置';frame.src='/runninghub/';
     frame.loading='lazy';frame.style.cssText='display:block;width:100%;height:960px;min-height:550px;border:0;background:#101722';
     var status=document.createElement('span');status.style.cssText='font-size:12px;color:var(--text-secondary,#aaa)';
     status.textContent='未检测服务';
-    head.append(icon,label,status,button);content.append(note,frame);card.append(head,content);
+    var cloudButton=document.createElement('button');
+    cloudButton.type='button';
+    cloudButton.textContent='填入云端视频地址';
+    cloudButton.title='将原系统视频服务的 ComfyUI 地址预填为 RunningHub 代理，仍需点击原系统保存配置';
+    cloudButton.style.cssText='background:#205eaa;color:white;border:0;border-radius:7px;padding:10px 15px;cursor:pointer';
+    head.append(icon,label,status,button,cloudButton);content.append(note,frame);card.append(head,content);
+    cloudButton.addEventListener('click',async function(){
+      try {
+        var response=await fetch('/runninghub/api/bridge/status',{cache:'no-store',credentials:'same-origin'});
+        var config=await response.json();
+        if(!response.ok||!config.ready)throw new Error('请先点击展开配置，在第 6 步保存 API Key、工作流 ID 和节点映射，并勾选启用。');
+        var upstream=Array.from(document.querySelectorAll('.section-card .provider-card')).find(function(item){
+          var title=item.querySelector('.provider-name');
+          return title&&title.textContent.indexOf('ComfyUI')>=0&&item.id!=='canvas-runninghub-card';
+        });
+        if(!upstream)throw new Error('未找到原版的视频 ComfyUI 配置卡片。');
+        var input=upstream.querySelector('.api-url-field input');
+        if(!input)throw new Error('请先启用原版的 ComfyUI 视频服务开关，再点击本按钮。');
+        var proxy='http://127.0.0.1:18080/runninghub/comfy';
+        var setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+        setter.call(input,proxy);
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+        input.dispatchEvent(new Event('change',{bubbles:true}));
+        status.textContent='已填入云端地址，请点击页面底部「保存配置」';
+        status.style.color='#82d8b1';
+        window.alert('已在原版视频服务的 API 地址栏填入 RunningHub 云端代理。请点击当前系统设置页面底部的「保存配置」，再在「默认配置」中保持视频生成服务为 ComfyUI（兼容协议名称）。');
+      }catch(error){
+        window.alert('无法切换：'+error.message);
+      }
+    });
     button.addEventListener('click',function(){
       content.hidden=!content.hidden;
       button.textContent=content.hidden?'展开配置':'收起配置';
