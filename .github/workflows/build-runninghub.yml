@@ -31,7 +31,9 @@ jobs:
           cache: maven
           cache-dependency-path: extension/pom.xml
       - name: Check website integration JavaScript
-        run: node --check integration/runninghub-settings.js
+        run: |
+          node --check integration/runninghub-settings.js
+          node --check extension/src/main/webapp/bridge-config.js
       - name: Compile, test and package
         run: mvn -B -ntp -f extension/pom.xml clean verify
       - name: Prepare portable integration install files
