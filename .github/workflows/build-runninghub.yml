@@ -4,10 +4,12 @@ on:
     branches: [main, feature/runninghub-integration]
     paths:
       - "extension/**"
+      - "integration/**"
       - ".github/workflows/build-runninghub.yml"
   pull_request:
     paths:
       - "extension/**"
+      - "integration/**"
       - ".github/workflows/build-runninghub.yml"
   workflow_dispatch:
 
@@ -16,7 +18,7 @@ permissions:
 
 jobs:
   test-and-package:
-    name: Java 17 Maven test and WAR package
+    name: Java 17 Maven and integrated website installer
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -28,12 +30,28 @@ jobs:
           java-version: "17"
           cache: maven
           cache-dependency-path: extension/pom.xml
+      - name: Check website integration JavaScript
+        run: node --check integration/runninghub-settings.js
       - name: Compile, test and package
         run: mvn -B -ntp -f extension/pom.xml clean verify
-      - name: Upload Tomcat 10.1 WAR
+      - name: Prepare portable integration install files
+        run: |
+          mkdir -p build/Canvas-RunningHub-Integration
+          cp extension/target/runninghub.war build/Canvas-RunningHub-Integration/
+          cp integration/runninghub-settings.js build/Canvas-RunningHub-Integration/
+          cp integration/install.ps1 build/Canvas-RunningHub-Integration/
+          cp integration/README.md build/Canvas-RunningHub-Integration/
+      - name: Upload standalone WAR
         uses: actions/upload-artifact@v4
         with:
           name: runninghub-war
           path: extension/target/runninghub.war
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload integrated website installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Canvas-RunningHub-Integration
+          path: build/Canvas-RunningHub-Integration/
           if-no-files-found: error
           retention-days: 30
